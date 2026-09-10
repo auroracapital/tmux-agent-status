@@ -47,6 +47,10 @@ brew install bash
 The plugin auto-detects Homebrew Bash at `/opt/homebrew/bin/bash` or `/usr/local/bin/bash` when macOS launches scripts with the system Bash 3.2.
 If Bash is installed somewhere else, set `TMUX_AGENT_STATUS_BASH` to that path.
 
+Use fzf 0.71 or newer to keep the popup selection on the same item when
+expanding or refreshing the list. Older fzf versions retain their previous
+selection behavior.
+
 By default the plugin:
 
 - Appends the live summary to `status-right`
