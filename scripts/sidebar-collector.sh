@@ -14,6 +14,31 @@ CACHE_FILE="$STATUS_DIR/.sidebar-cache"
 PID_FILE="$STATUS_DIR/.sidebar-collector.pid"
 RUN_ONCE=0
 
+# Poll tuning. The loop wakes every TICK_SECONDS to animate the spinner for
+# active sessions, and runs the (much more expensive) collection every
+# TICKS_PER_COLLECT wakeups.
+#
+# Defaults are 1s tick / 5s collect. Override with tmux options:
+#   set -g @agent-tick-seconds 0.25
+#   set -g @agent-ticks-per-collect 4
+TICK_SECONDS=$(tmux show-option -gqv "@agent-tick-seconds" 2>/dev/null)
+[ -z "$TICK_SECONDS" ] && TICK_SECONDS=1
+TICKS_PER_COLLECT=$(tmux show-option -gqv "@agent-ticks-per-collect" 2>/dev/null)
+[ -z "$TICKS_PER_COLLECT" ] && TICKS_PER_COLLECT=5
+
+# Validate once at startup: invalid sleep values would busy-loop, and a zero
+# collection count would terminate the daemon in the modulo expression.
+if [[ ! "$TICK_SECONDS" =~ ^[0-9]*\.?[0-9]+$ || ! "$TICK_SECONDS" =~ [1-9] ]]; then
+    echo 'tmux-agent-status: @agent-tick-seconds must be positive; using 1' >&2
+    TICK_SECONDS=1
+fi
+if [[ "$TICKS_PER_COLLECT" =~ ^0*([1-9][0-9]{0,8})$ ]]; then
+    TICKS_PER_COLLECT="${BASH_REMATCH[1]}"
+else
+    echo 'tmux-agent-status: @agent-ticks-per-collect must be an integer from 1 to 999999999; using 5' >&2
+    TICKS_PER_COLLECT=5
+fi
+
 if [[ "${1:-}" == "--once" ]]; then
     RUN_ONCE=1
 fi
@@ -110,6 +135,6 @@ while true; do
         signal_sidebar_clients USR2 active
     fi
 
-    sleep 0.25
-    tick=$(( (tick + 1) % 4 ))
+    sleep "$TICK_SECONDS"
+    tick=$(( (tick + 1) % TICKS_PER_COLLECT ))
 done
