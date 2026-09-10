@@ -819,13 +819,8 @@ render() {
 
     # ── Footer ──
     buf+="$sep"
-    # The footer must never be wider than the pane. A footer that wraps costs a
-    # second physical row, the frame becomes H+1 rows, the terminal scrolls it up
-    # by one, and the header scrolls off. SCREEN_SEL still maps the unscrolled
-    # rows, so every click selects the entry above the one under the cursor —
-    # you have to click one row low to hit what you want. Found 2026-08-16: the
-    # full hint is 51 columns and the sidebar is 34. Pick a hint that fits, then
-    # hard-clamp with a spare column for wide glyphs.
+    # A wrapped footer scrolls the frame and breaks mouse row mapping.
+    # Prefer shorter hints, then leave a spare column when clamping.
     local ftxt fcol
     if (( WAIT_INPUT_ACTIVE )); then
         ftxt=" Wait minutes for ${WAIT_INPUT_TARGET}: ${WAIT_INPUT_BUF}"
@@ -1124,16 +1119,7 @@ while true; do
     fi
     (( NEEDS_COLLECT )) && _COLLECT_TICK=0
 
-    # 30s, not 1s: real updates arrive as USR1/USR2 through the trap handlers above, sent by
-    # tmux-agent-status.tmux's own hooks (after-select-pane, client-session-changed,
-    # after-switch-client, session-window-changed, window-pane-changed, ...) on every event that
-    # could change what this sidebar shows or which pane it should highlight as current. A
-    # trapped signal interrupts a blocking `read` immediately regardless of its timeout, so an
-    # idle sidebar does not need to wake up once a second on its own to notice anything - it
-    # already gets told. The remaining 1s poll was pure waste: ~10 sidebar.sh instances, each
-    # forking a `tmux display-message` in _collect_cur_client every single second whether
-    # anything changed or not. This timeout is a safety net for the case a hook is ever missed,
-    # not the update path.
+    # Refresh signals interrupt read; idle polling only covers missed signals.
     local_read_timeout=30
     (( _HAS_WORKING )) && local_read_timeout=0.25
 
@@ -1150,7 +1136,18 @@ while true; do
         NEEDS_RENDER=1
         # Handle escape sequences (arrows, mouse) shared by both modes.
         _handle_escape() {
-            read -rsn2 -t 0.1 seq
+            local seq="" part=""
+            read -rsn1 -t 0.1 seq
+            if [[ "$seq" == '[' ]]; then
+                # Consume the full CSI sequence, including modifier parameters.
+                while read -rsn1 -t 0.1 part; do
+                    seq+="$part"
+                    [[ "$seq" == '[<' || "$part" == [@-~] ]] && break
+                done
+            elif [[ "$seq" == O ]]; then
+                read -rsn1 -t 0.1 part
+                seq+="$part"
+            fi
             case "$seq" in
                 '[A') (( SELECTED > SESS_START )) && ((SELECTED--)); return 0 ;;
                 '[B') (( SELECTED < SEL_COUNT - 1 )) && ((SELECTED++)); return 0 ;;
@@ -1182,29 +1179,13 @@ while true; do
                     return 0
                     ;;
                 '[C')
-                    # Right arrow hands focus to the CLI pane the sidebar sits next to. The
-                    # sidebar is always the left pane in this layout (checked live across
-                    # windows 1/2/5 on 2026-08-16, all left=0) so the CLI is to the right of it,
-                    # not the left. Without this case, Right fell through to the unhandled branch
-                    # below and exited the sidebar script entirely instead of just moving focus
-                    # off it - Sam asked for a way back to the CLI pane besides a mouse click or
-                    # prefix+arrow.
+                    # Move focus from the left sidebar to the adjacent pane.
                     tmux select-pane -t "$SELF_PANE" -R >/dev/null 2>&1
                     return 0
                     ;;
             esac
 
-            # Only a genuine standalone Escape reaches here with $seq empty - the follow-up read
-            # timed out because nothing else was coming, which is what "dismiss the sidebar"
-            # means and stays unhandled so the caller can exit(0) on it as before.
-            #
-            # Anything else that starts with ESC but isn't one of the cases above (Left arrow,
-            # Home, End, PageUp/Down, Delete, function keys - whatever the terminal sends) used
-            # to fall through to that same exit path, so a single stray keypress killed the
-            # sidebar pane outright. Found while adding the Right-arrow case above and testing
-            # what Left did: it closed the pane instead of doing nothing. Swallowing every
-            # non-empty, unrecognized sequence here fixes the whole class at once instead of
-            # enumerating every key a terminal might send.
+            # Swallow unknown key sequences; only bare Escape dismisses.
             [ -n "$seq" ] && return 0
             return 1  # unhandled (bare Escape)
         }

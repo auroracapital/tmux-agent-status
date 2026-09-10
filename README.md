@@ -47,6 +47,9 @@ brew install bash
 The plugin auto-detects Homebrew Bash at `/opt/homebrew/bin/bash` or `/usr/local/bin/bash` when macOS launches scripts with the system Bash 3.2.
 If Bash is installed somewhere else, set `TMUX_AGENT_STATUS_BASH` to that path.
 
+The collector uses `flock`, or Perl when `flock` is unavailable, to prevent
+duplicate daemons. Install either one if neither is available on your system.
+
 By default the plugin:
 
 - Appends the live summary to `status-right`
