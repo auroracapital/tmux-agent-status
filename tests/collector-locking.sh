@@ -5,6 +5,9 @@ TMP_DIR=$(mktemp -d)
 children=()
 cleanup() {
     touch "$TMP_DIR/flock/finish" "$TMP_DIR/perl/finish" 2>/dev/null || true
+    for pid in "${daemon_pid:-}" "${next_pid:-}"; do
+        [[ -n "$pid" && "$pid" != $$ ]] && kill "$pid" 2>/dev/null || true
+    done
     for pid in "${children[@]}"; do kill "$pid" 2>/dev/null || true; done
     wait 2>/dev/null || true
     rm -rf "$TMP_DIR"
@@ -91,3 +94,39 @@ for pid in "${children[@]}"; do wait "$pid"; done
 children=()
 for ((i=0; i<8; i++)); do [[ ! -s "$TMP_DIR/once-$i.errors" ]]; done
 echo 'Concurrent one-shot cache publication checks passed'
+
+# Exercise the complete daemon startup path, including the PID metadata left
+# by SIGKILL, rather than only testing the lock wrapper in isolation.
+rm -f "$status_dir/.sidebar-collector.pid"
+start_daemon() {
+    PATH="$TMP_DIR/bin:$PATH" HOME="$TMP_DIR/home" \
+        bash "$REPO_DIR/scripts/sidebar-collector.sh" &
+    daemon_wrapper=$!
+    children+=("$daemon_wrapper")
+}
+start_daemon
+wait_for_file "$status_dir/.sidebar-collector.pid"
+daemon_pid=$(cat "$status_dir/.sidebar-collector.pid")
+PATH="$TMP_DIR/bin:$PATH" HOME="$TMP_DIR/home" \
+    bash "$REPO_DIR/scripts/sidebar-collector.sh"
+PATH="$TMP_DIR/bin:$PATH" HOME="$TMP_DIR/home" \
+    bash "$REPO_DIR/scripts/sidebar-collector.sh" --once
+[[ $(cat "$status_dir/.sidebar-collector.pid") == "$daemon_pid" ]]
+kill -9 "$daemon_pid"
+wait "$daemon_wrapper" 2>/dev/null || true
+children=()
+[[ $(cat "$status_dir/.sidebar-collector.pid") == "$daemon_pid" ]]
+# Any inherited descriptor held by the current one-second sleep closes too.
+sleep 1.1
+start_daemon
+for ((i=0; i<100; i++)); do
+    next_pid=$(cat "$status_dir/.sidebar-collector.pid")
+    [[ "$next_pid" != "$daemon_pid" ]] && break
+    sleep 0.02
+done
+[[ "$next_pid" != "$daemon_pid" ]]
+kill -TERM "$next_pid"
+wait "$daemon_wrapper"
+children=()
+[[ ! -f "$status_dir/.sidebar-collector.pid" ]]
+echo 'Daemon singleton, stale PID recovery, and graceful cleanup checks passed'
