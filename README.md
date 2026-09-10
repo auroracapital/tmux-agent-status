@@ -50,6 +50,10 @@ If Bash is installed somewhere else, set `TMUX_AGENT_STATUS_BASH` to that path.
 The collector uses `flock`, or Perl when `flock` is unavailable, to prevent
 duplicate daemons. Install either one if neither is available on your system.
 
+Use fzf 0.71 or newer to keep the popup selection on the same item when
+expanding or refreshing the list. Older fzf versions retain their previous
+selection behavior.
+
 By default the plugin:
 
 - Appends the live summary to `status-right`
@@ -342,7 +346,17 @@ set -g @agent-sidebar-width "42"
 # session/window/pane list (default). "agents" is a flat list of every
 # agent pane sorted by status. Toggle mid-session with ctrl-f.
 set -g @agent-switcher-default-mode "tree"  # tree | agents
+
+# Collector poll rate. The daemon wakes every @agent-tick-seconds to animate
+# the spinner and re-collects every @agent-ticks-per-collect wakeups.
+# Lower values are more responsive but cost noticeably more CPU.
+set -g @agent-tick-seconds "1"
+set -g @agent-ticks-per-collect "5"
 ```
+
+Polling options are read when the collector starts. The tick interval must be
+a positive number of seconds; the collection count must be an integer from
+1 to 999999999. Invalid values produce a warning and use the defaults.
 
 `@agent-switcher-style "both"` is the default. It keeps the persistent sidebar and leaves `prefix + S` as the lightweight popup switcher.
 
