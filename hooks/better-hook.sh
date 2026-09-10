@@ -56,10 +56,13 @@ set_status() {
     if [ -n "${TMUX_PANE:-}" ]; then
         local pane_file="$PANE_DIR/${tmux_session}_${TMUX_PANE}.status"
         local agent_file="$PANE_DIR/${tmux_session}_${TMUX_PANE}.agent"
+
         echo "$requested_status" > "$pane_file"
         echo "claude" > "$agent_file"
 
+        # Scan every pane so a permission request outranks ongoing work.
         session_status="done"
+        local saw_ask="" saw_working="" saw_wait=""
         local existing_pane_file=""
         for existing_pane_file in "$PANE_DIR/${tmux_session}_"*.status; do
             [ -f "$existing_pane_file" ] || continue
@@ -67,17 +70,19 @@ set_status() {
             local pane_status=""
             pane_status=$(cat "$existing_pane_file" 2>/dev/null || echo "")
             case "$pane_status" in
-                working)
-                    session_status="working"
-                    break
-                    ;;
-                wait)
-                    if [ "$session_status" != "working" ]; then
-                        session_status="wait"
-                    fi
-                    ;;
+                ask)     saw_ask=1 ;;
+                working) saw_working=1 ;;
+                wait)    saw_wait=1 ;;
             esac
         done
+
+        if [ -n "$saw_ask" ]; then
+            session_status="ask"
+        elif [ -n "$saw_working" ]; then
+            session_status="working"
+        elif [ -n "$saw_wait" ]; then
+            session_status="wait"
+        fi
     fi
 
     echo "$session_status" > "$status_file"
@@ -175,8 +180,25 @@ case "$HOOK_TYPE" in
         mark_refresh
         ;;
     Notification)
-        # Claude is waiting for user input.
-        set_status "$TMUX_SESSION" "done"
+        # Prefer Claude's structured notification type. Older payloads may
+        # omit it; only those fall back to the permission message heuristic.
+        notification_type=$(printf '%s' "$HOOK_JSON" | tr -d '\n' | sed -n 's/.*"notification_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+        case "$notification_type" in
+            permission_prompt)
+                set_status "$TMUX_SESSION" "ask"
+                ;;
+            '')
+                message=$(printf '%s' "$HOOK_JSON" | tr -d '\n' | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                case "$message" in
+                    *permission*|*Permission*|*approve*|*Approve*|*confirm*|*Confirm*|*"needs your"*)
+                        set_status "$TMUX_SESSION" "ask"
+                        ;;
+                esac
+                ;;
+            *)
+                # Idle reminders and unrelated notifications preserve state.
+                ;;
+        esac
         mark_refresh
 
         SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

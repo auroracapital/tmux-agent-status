@@ -672,7 +672,15 @@ else
     ctrl_f_bind="execute-silent(bash '$0' --state-dir '$state_dir' --toggle-mode)+reload(bash '$0' --state-dir '$state_dir' --rows)+transform(bash '$0' --state-dir '$state_dir' --preview-action)"
 fi
 
+# Identity tracking was added in fzf 0.71. Older versions can still open
+# the picker, but retain their previous selection behavior on reload.
+tracking_args=()
+if fzf --help 2>/dev/null | grep -q -- '--id-nth'; then
+    tracking_args=(--track --id-nth=2)
+fi
+
 selected=$(emit_rows_for_mode | fzf \
+    "${tracking_args[@]}" \
     --ansi \
     --delimiter=$'\t' \
     --with-nth=3.. \

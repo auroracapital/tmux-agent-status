@@ -92,4 +92,26 @@ run_hook "Stop" "%3"
 session_status="$(cat "$STATUS_DIR/mixed-hooks.status")"
 assert_eq "done" "$session_status" "Session should become done once all tracked panes are done"
 
+# A permission request in a later pane must outrank earlier working panes.
+echo "working" > "$PANE_DIR/mixed-hooks_%13.status"
+notify() {
+    printf '%s' "$1" | PATH="$FAKE_BIN:$PATH" HOME="$TEST_HOME" \
+        TMUX="/tmp/tmux-test,4242,0" TMUX_PANE="%3" \
+        "$REPO_DIR/hooks/better-hook.sh" Notification
+}
+notify '{"notification_type":"permission_prompt","message":"Tool access requested"}'
+assert_eq "ask" "$(cat "$PANE_DIR/mixed-hooks_%3.status")" "Structured permission notifications should mark the pane ask"
+assert_eq "ask" "$(cat "$STATUS_DIR/mixed-hooks.status")" "Permission requests must outrank working panes"
+
+# A structured idle notification must win over permission-shaped message text.
+notify '{"notification_type":"idle_prompt","message":"Confirm the permission settings"}'
+assert_eq "ask" "$(cat "$PANE_DIR/mixed-hooks_%3.status")" "Idle reminders must preserve the current pane state"
+run_hook "Stop" "%3"
+notify '{"notification_type":"idle_prompt","message":"Confirm the permission settings"}'
+assert_eq "done" "$(cat "$PANE_DIR/mixed-hooks_%3.status")" "Idle reminders must not relight a finished pane"
+notify '{"message":"Claude needs your permission to use Bash"}'
+assert_eq "ask" "$(cat "$PANE_DIR/mixed-hooks_%3.status")" "Legacy permission messages should remain supported"
+run_hook "UserPromptSubmit" "%3"
+assert_eq "working" "$(cat "$STATUS_DIR/mixed-hooks.status")" "A new prompt should clear ask and resume work"
+
 echo "Claude multi-pane hook regression checks passed"
