@@ -26,6 +26,19 @@ TICK_SECONDS=$(tmux show-option -gqv "@agent-tick-seconds" 2>/dev/null)
 TICKS_PER_COLLECT=$(tmux show-option -gqv "@agent-ticks-per-collect" 2>/dev/null)
 [ -z "$TICKS_PER_COLLECT" ] && TICKS_PER_COLLECT=5
 
+# Validate once at startup: invalid sleep values would busy-loop, and a zero
+# collection count would terminate the daemon in the modulo expression.
+if [[ ! "$TICK_SECONDS" =~ ^[0-9]*\.?[0-9]+$ || ! "$TICK_SECONDS" =~ [1-9] ]]; then
+    echo 'tmux-agent-status: @agent-tick-seconds must be positive; using 1' >&2
+    TICK_SECONDS=1
+fi
+if [[ "$TICKS_PER_COLLECT" =~ ^0*([1-9][0-9]{0,8})$ ]]; then
+    TICKS_PER_COLLECT="${BASH_REMATCH[1]}"
+else
+    echo 'tmux-agent-status: @agent-ticks-per-collect must be an integer from 1 to 999999999; using 5' >&2
+    TICKS_PER_COLLECT=5
+fi
+
 if [[ "${1:-}" == "--once" ]]; then
     RUN_ONCE=1
 fi

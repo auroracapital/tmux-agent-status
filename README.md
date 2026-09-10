@@ -347,6 +347,10 @@ set -g @agent-tick-seconds "1"
 set -g @agent-ticks-per-collect "5"
 ```
 
+Polling options are read when the collector starts. The tick interval must be
+a positive number of seconds; the collection count must be an integer from
+1 to 999999999. Invalid values produce a warning and use the defaults.
+
 `@agent-switcher-style "both"` is the default. It keeps the persistent sidebar and leaves `prefix + S` as the lightweight popup switcher.
 
 The switcher popup has two views. **Tree** (default) is the hierarchical session/window/pane list; tab expands/collapses. **Agents** is a flat list of every agent pane (any status) sorted by priority — `ask`, `done`, `working`, `wait`, `parked` — with a live preview pane and 2-second refresh. Press `ctrl-f` inside the popup to toggle between views.
